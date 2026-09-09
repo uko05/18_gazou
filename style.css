@@ -1,3 +1,10 @@
+@font-face {
+  font-family: 'mihoyo-zenzero';
+  src: url('font/mihoyo-zenzero.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 :root {
   --bg:       #f4f4f9;
   --surface:  #ffffff;
@@ -8,7 +15,7 @@
   --border:   #dddddd;
   --danger:   #c0392b;
   --ok:       #2e7d32;
-  --font:     'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+  --font:     'mihoyo-zenzero', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
   --radius:   12px;
 }
 
@@ -30,6 +37,34 @@ header {
 }
 header h1 { font-size: 1.3rem; }
 .header-sub { margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
+.account-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.portal-footer {
+  text-align: center;
+  padding: 26px 16px 40px;
+  color: #777;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+.twitter-icon { width: 30px; height: 30px; display: block; }
+
+.site-version {
+  position: fixed;
+  right: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  color: rgba(0,0,0,0.2);
+  pointer-events: none;
+  z-index: 1;
+}
 
 main {
   max-width: 560px;
@@ -91,6 +126,18 @@ main {
 }
 .size-row .input-group { flex: 1; margin-bottom: 0; }
 .size-x { padding-bottom: 10px; color: var(--muted); font-weight: bold; }
+
+.size-history-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.size-history-btn {
+  width: auto;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+}
 
 .primary-btn {
   display: block;
@@ -194,3 +241,13 @@ main {
 }
 .zoom-row label { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
 .zoom-row input[type="range"] { flex: 1; }
+
+.clamp-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+}

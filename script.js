@@ -27,6 +27,9 @@ const nextFilenamePreview = document.getElementById('next-filename-preview');
 const saveBtn      = document.getElementById('save-btn');
 const saveMsg      = document.getElementById('save-msg');
 
+const clampToggle    = document.getElementById('clamp-toggle');
+const sizeHistoryRow = document.getElementById('size-history-row');
+
 // ===== 画像の状態 =====
 let nativeImg = null;
 let scale = 1, offsetX = 0, offsetY = 0, minScale = 0.01;
@@ -52,7 +55,14 @@ const LS_KEYS = {
   targetH:  'gazouTool_targetH',
   filename: 'gazouTool_filename',
   ext:      'gazouTool_ext',
+  clamp:    'gazouTool_clampEnabled',
+  sizeHistory: 'gazouTool_sizeHistory',
 };
+
+// 範囲外(画像が無い部分)を選べないようにするかどうか。デフォルトはON
+// (これまでの挙動のまま)。OFFにすると、枠内に画像の無い透明な部分が
+// 入る位置まで自由にドラッグ/ズームできるようになる。
+let clampEnabled = true;
 
 function restoreSavedInputs() {
   try {
@@ -60,10 +70,15 @@ function restoreSavedInputs() {
     const h   = localStorage.getItem(LS_KEYS.targetH);
     const fn  = localStorage.getItem(LS_KEYS.filename);
     const ext = localStorage.getItem(LS_KEYS.ext);
+    const clamp = localStorage.getItem(LS_KEYS.clamp);
     if (w)  targetWidthInput.value  = w;
     if (h)  targetHeightInput.value = h;
     if (fn) filenameInput.value     = fn;
     if (ext && [...extSelect.options].some((o) => o.value === ext)) extSelect.value = ext;
+    if (clamp !== null) {
+      clampEnabled = clamp !== 'false';
+      clampToggle.checked = clampEnabled;
+    }
   } catch (e) {
     // プライベートブラウジング等でlocalStorageが使えない場合は諦めて既定値のまま
   }
@@ -74,6 +89,58 @@ function saveInput(key, value) {
 }
 
 restoreSavedInputs();
+
+clampToggle.addEventListener('change', () => {
+  clampEnabled = clampToggle.checked;
+  saveInput(LS_KEYS.clamp, String(clampEnabled));
+  if (nativeImg) applyTransform();
+});
+
+// ===== よく使うサイズの履歴(最大3件、重複無し、保存成功時に記録) =====
+function loadSizeHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_KEYS.sizeHistory) || '[]');
+    return Array.isArray(raw) ? raw.filter((e) => e && Number.isFinite(e.w) && Number.isFinite(e.h)) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function saveSizeHistoryToStorage() {
+  try { localStorage.setItem(LS_KEYS.sizeHistory, JSON.stringify(sizeHistory)); } catch (e) {}
+}
+let sizeHistory = loadSizeHistory();
+
+function renderSizeHistoryButtons() {
+  sizeHistoryRow.innerHTML = '';
+  sizeHistory.forEach(({ w, h }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary-btn size-history-btn';
+    btn.textContent = `${w}×${h}`;
+    btn.addEventListener('click', () => {
+      targetWidthInput.value = w;
+      targetHeightInput.value = h;
+      saveInput(LS_KEYS.targetW, w);
+      saveInput(LS_KEYS.targetH, h);
+      if (nativeImg) initCropFrame();
+    });
+    sizeHistoryRow.appendChild(btn);
+  });
+  sizeHistoryRow.classList.toggle('hidden', sizeHistory.length === 0);
+}
+
+// 実際に保存に使ったサイズだけを「使った」記録として履歴に積む
+// (入力中の値ではなく、保存成功時に呼ぶ)。同じサイズが既にあれば
+// 重複させず先頭に移動するだけにする。
+function recordSizeUsed(w, h) {
+  sizeHistory = sizeHistory.filter((e) => !(e.w === w && e.h === h));
+  sizeHistory.unshift({ w, h });
+  sizeHistory = sizeHistory.slice(0, 3);
+  saveSizeHistoryToStorage();
+  renderSizeHistoryButtons();
+}
+
+renderSizeHistoryButtons();
 
 // ===== 出力サイズ変更 =====
 [targetWidthInput, targetHeightInput].forEach((el) => {
@@ -145,6 +212,7 @@ function initCropFrame() {
 // (minScaleにより画像はフレーム以上のサイズになるので、通常はimgW>=frameW/
 // imgH>=frameHだが、念のため逆のケースも中央寄せで吸収しておく)
 function clampOffsets() {
+  if (!clampEnabled) return;
   const imgW = nativeImg.width  * scale;
   const imgH = nativeImg.height * scale;
   offsetX = imgW <= frameW ? (frameW - imgW) / 2 : Math.min(0, Math.max(frameW - imgW, offsetX));
@@ -406,6 +474,7 @@ saveBtn.addEventListener('click', async () => {
       saveMsg.textContent = `「${filename}」としてダウンロードしました。`;
       saveMsg.classList.add('ok');
     }
+    recordSizeUsed(targetW, targetH);
     await updateNextFilenamePreview();
   } catch (e) {
     console.error('[save] failed', e);

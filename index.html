@@ -3,15 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex, nofollow">
 <title>画像切り抜き連番保存ツール</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=1.0">
+
+<!-- Favicon -->
+<link rel="icon" href="public/scripts/favicon_io/favicon.ico" type="image/x-icon">
+<link rel="icon" sizes="16x16" href="public/scripts/favicon_io/favicon-16x16.png">
+<link rel="icon" sizes="32x32" href="public/scripts/favicon_io/favicon-32x32.png">
+<link rel="apple-touch-icon" href="public/scripts/favicon_io/apple-touch-icon.png">
+<link rel="icon" sizes="192x192" href="public/scripts/favicon_io/android-chrome-192x192.png">
+<link rel="icon" sizes="512x512" href="public/scripts/favicon_io/android-chrome-512x512.png">
 </head>
 <body>
 
 <header>
   <h1>画像切り抜き連番保存ツール</h1>
   <p class="header-sub">サイズを指定して画像を切り抜き、連番ファイル名でどんどん保存できます</p>
+  <a href="https://uko05.github.io/24_AccountCenter/" class="account-link">アカウント管理</a>
 </header>
 
 <main>
@@ -29,6 +37,7 @@
         <input type="number" id="target-height" value="600" min="1" step="1">
       </div>
     </div>
+    <div class="size-history-row hidden" id="size-history-row"></div>
   </section>
 
   <section class="section" id="save-section">
@@ -88,12 +97,37 @@
       <input type="range" id="zoom-slider" min="0.1" max="10" step="0.001" value="1">
     </div>
 
+    <label class="clamp-toggle-row">
+      <input type="checkbox" id="clamp-toggle" checked>
+      範囲外(画像が無い部分)を選べないようにする
+    </label>
+
     <button type="button" id="save-btn" class="primary-btn save-btn-spaced">保存する</button>
     <p id="save-msg" class="form-msg"></p>
   </section>
 
 </main>
 
+<footer class="portal-footer">
+  <a href="https://x.com/uko_dayo_" target="_blank" rel="noopener noreferrer" class="twitter-link">
+    <img src="Image/twitter_image.png" alt="X(Twitter)" class="twitter-icon">
+  </a>
+  <a href="https://t.co/0jAcAV2GJv" target="_blank" rel="noopener" class="twitter-link">
+    <img src="Image/discord_image.png" alt="Discord" class="twitter-icon">
+  </a>
+  <span id="uko-account-status-slot"></span>
+</footer>
+
+<span class="site-version" id="site-version">v1.0</span>
+
 <script src="script.js"></script>
+<script type="module" src="https://uko05.github.io/24_AccountCenter/account-status.js"></script>
+
+<!-- 共通サイドバー -->
+<!-- ローカル確認用: -->
+<script src="./shared/sidebar.js"></script>
+<!-- 本番（GitHub Pages公開後はこちらに切り替え）:
+<script src="https://uko05.github.io/00_TopPage/shared/sidebar.js"></script>
+-->
 </body>
 </html>
