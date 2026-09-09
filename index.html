@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>画像切り抜き連番保存ツール</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>画像切り抜き連番保存ツール</h1>
+  <p class="header-sub">サイズを指定して画像を切り抜き、連番ファイル名でどんどん保存できます</p>
+</header>
+
+<main>
+
+  <section class="section">
+    <div class="section-title">① 出力サイズを指定</div>
+    <div class="size-row">
+      <div class="input-group">
+        <label for="target-width">幅(px)</label>
+        <input type="number" id="target-width" value="800" min="1" step="1">
+      </div>
+      <span class="size-x">×</span>
+      <div class="input-group">
+        <label for="target-height">高さ(px)</label>
+        <input type="number" id="target-height" value="600" min="1" step="1">
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="save-section">
+    <div class="section-title">② 保存設定</div>
+
+    <div class="input-group">
+      <label>保存先フォルダ</label>
+      <div class="folder-row">
+        <button type="button" id="pick-folder-btn" class="secondary-btn">フォルダを選択</button>
+        <span id="folder-name-display" class="folder-name">未選択（ダウンロードフォルダに保存されます）</span>
+      </div>
+      <p id="fsapi-warning" class="hint hidden">
+        お使いのブラウザはフォルダへの直接保存に対応していません。保存するたびに通常のダウンロードとして保存され、連番はこのページを開いている間だけ記憶されます。
+      </p>
+    </div>
+
+    <div class="input-group">
+      <label for="filename-input">ファイル名（連番・拡張子は自動で付きます）</label>
+      <input type="text" id="filename-input" value="Test" maxlength="60">
+    </div>
+
+    <div class="input-group">
+      <label for="ext-select">拡張子</label>
+      <select id="ext-select">
+        <option value="png">PNG（高画質・背景透過対応）</option>
+        <option value="jpg">JPG（軽量）</option>
+        <option value="webp">WEBP（高圧縮）</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label>次に保存されるファイル名</label>
+      <div class="uid-box" id="next-filename-preview">Test_001.png</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">③ 画像を読み込み</div>
+    <input type="file" id="file-input" accept="image/*" hidden>
+    <button type="button" id="load-btn" class="primary-btn">画像読み込み</button>
+    <p id="no-image-hint" class="hint">まだ画像が読み込まれていません</p>
+  </section>
+
+  <section class="section hidden" id="crop-section">
+    <div class="section-title">④ 位置とズームを調整して保存</div>
+    <p class="hint">ドラッグで位置を移動、ホイールまたは下のスライダーで拡大縮小できます</p>
+    <div class="crop-frame-wrap">
+      <div class="crop-stage" id="crop-stage">
+        <img id="crop-ghost-img" class="crop-ghost-img" src="" alt="">
+        <div class="crop-frame" id="crop-frame">
+          <img id="crop-img" src="" alt="">
+        </div>
+      </div>
+    </div>
+    <div class="zoom-row">
+      <label for="zoom-slider">ズーム</label>
+      <input type="range" id="zoom-slider" min="0.1" max="10" step="0.001" value="1">
+    </div>
+
+    <button type="button" id="save-btn" class="primary-btn save-btn-spaced">保存する</button>
+    <p id="save-msg" class="form-msg"></p>
+  </section>
+
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
