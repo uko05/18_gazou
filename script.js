@@ -44,7 +44,7 @@ const fallbackCounts = new Map();
 
 if (!HAS_FS_API) {
   pickFolderBtn.disabled = true;
-  pickFolderBtn.textContent = '（このブラウザは非対応）';
+  pickFolderBtn.textContent = 'フォルダへの直接保存は非対応（ダウンロードで保存されます）';
   fsapiWarning.classList.remove('hidden');
 }
 
