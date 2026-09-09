@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>画像切り抜き連番保存ツール</title>
-<link rel="stylesheet" href="style.css?v=1.0">
+<link rel="stylesheet" href="style.css?v=1.1">
 
 <!-- Favicon -->
 <link rel="icon" href="public/scripts/favicon_io/favicon.ico" type="image/x-icon">
@@ -49,6 +49,7 @@
         <button type="button" id="pick-folder-btn" class="secondary-btn">フォルダを選択</button>
         <span id="folder-name-display" class="folder-name">未選択（ダウンロードフォルダに保存されます）</span>
       </div>
+      <p class="hint">※対応ブラウザ: Google Chrome・Microsoft Edge（PC版のみ）。スマートフォン・タブレットや、それ以外のブラウザ（Safari・Firefox等）では、この機能ではなく通常のダウンロードとして保存されます。</p>
       <p id="fsapi-warning" class="hint hidden">
         お使いのブラウザはフォルダへの直接保存に対応していません。保存するたびに通常のダウンロードとして保存され、連番はこのページを開いている間だけ記憶されます。
       </p>
@@ -118,7 +119,7 @@
   <span id="uko-account-status-slot"></span>
 </footer>
 
-<span class="site-version" id="site-version">v1.0</span>
+<span class="site-version" id="site-version">v1.1</span>
 
 <script src="script.js"></script>
 <script type="module" src="https://uko05.github.io/24_AccountCenter/account-status.js"></script>
