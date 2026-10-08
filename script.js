@@ -29,6 +29,8 @@ const saveMsg      = document.getElementById('save-msg');
 
 const clampToggle    = document.getElementById('clamp-toggle');
 const sizeHistoryRow = document.getElementById('size-history-row');
+const folderHistoryRow   = document.getElementById('folder-history-row');
+const filenameHistoryRow = document.getElementById('filename-history-row');
 
 // ===== 画像の状態 =====
 let nativeImg = null;
@@ -57,6 +59,7 @@ const LS_KEYS = {
   ext:      'gazouTool_ext',
   clamp:    'gazouTool_clampEnabled',
   sizeHistory: 'gazouTool_sizeHistory',
+  filenameHistory: 'gazouTool_filenameHistory',
 };
 
 // 範囲外(画像が無い部分)を選べないようにするかどうか。デフォルトはON
@@ -280,7 +283,7 @@ zoomSlider.addEventListener('input', () => setScale(+zoomSlider.value));
 // 'granted'のままのこともあれば'prompt'に戻ることもある。'prompt'の場合は
 // requestPermission()にユーザー操作(クリック)が必要なため、自動では再取得できず
 // 「フォルダを選択」ボタンを押してもらうタイミングで再取得を試みる(pendingDirHandle)。
-const IDB_NAME = 'gazouToolDB', IDB_STORE = 'handles', IDB_KEY = 'dirHandle';
+const IDB_NAME = 'gazouToolDB', IDB_STORE = 'handles', IDB_KEY = 'dirHandle', IDB_HISTORY_KEY = 'dirHistory';
 let pendingDirHandle = null;
 
 function openHandleDB() {
@@ -292,12 +295,12 @@ function openHandleDB() {
   });
 }
 
-async function saveDirHandleToDB(handle) {
+async function saveDirHandleToDB(handle, key = IDB_KEY) {
   try {
     const db = await openHandleDB();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(handle, IDB_KEY);
+      tx.objectStore(IDB_STORE).put(handle, key);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
     });
@@ -306,11 +309,11 @@ async function saveDirHandleToDB(handle) {
   }
 }
 
-async function loadDirHandleFromDB() {
+async function loadDirHandleFromDB(key = IDB_KEY) {
   try {
     const db = await openHandleDB();
     return await new Promise((resolve, reject) => {
-      const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(IDB_KEY);
+      const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
     });
@@ -325,6 +328,7 @@ async function loadDirHandleFromDB() {
 // 自動復元できる。'prompt'に戻っていた場合は、ボタンを押した時に再許可を試みる。
 async function restoreFolderHandle() {
   if (!HAS_FS_API) return;
+  await loadFolderHistory();
   const handle = await loadDirHandleFromDB();
   if (!handle) return;
   try {
@@ -369,6 +373,95 @@ pickFolderBtn.addEventListener('click', async () => {
 });
 
 restoreFolderHandle();
+
+// ===== よく使う保存先フォルダの履歴(最大3件、重複無し、保存成功時に記録、2026-10-09追加) =====
+// フォルダのハンドルはlocalStorageに入らないので、IndexedDBに配列で保存する。
+// ボタンを押した時(ユーザー操作)に許可の再取得もできるので、前回のフォルダの復元と同じ流れで使える。
+let folderHistory = [];
+
+async function loadFolderHistory() {
+  const raw = await loadDirHandleFromDB(IDB_HISTORY_KEY);
+  folderHistory = Array.isArray(raw) ? raw.filter((h) => h && h.kind === 'directory') : [];
+  renderFolderHistoryButtons();
+}
+
+function renderFolderHistoryButtons() {
+  folderHistoryRow.innerHTML = '';
+  folderHistory.forEach((handle) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary-btn size-history-btn';
+    btn.textContent = `📁 ${handle.name}`;
+    btn.addEventListener('click', () => useFolderFromHistory(handle));
+    folderHistoryRow.appendChild(btn);
+  });
+  folderHistoryRow.classList.toggle('hidden', !HAS_FS_API || folderHistory.length === 0);
+}
+
+async function useFolderFromHistory(handle) {
+  try {
+    let perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return;
+    dirHandle = handle;
+    pendingDirHandle = null;
+    folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
+    saveMsg.textContent = '';
+    await saveDirHandleToDB(dirHandle);
+    updateNextFilenamePreview();
+  } catch (e) {
+    console.error('[gazou] folder history use failed', e);
+    saveMsg.textContent = 'このフォルダは開けませんでした。「フォルダを選択」から選び直してください。';
+  }
+}
+
+// 同じ名前の別フォルダもあり得るので、名前ではなくisSameEntry()で重複を判定する
+async function recordFolderUsed(handle) {
+  const rest = [];
+  for (const h of folderHistory) {
+    let same = false;
+    try { same = await h.isSameEntry(handle); } catch (e) {}
+    if (!same) rest.push(h);
+  }
+  folderHistory = [handle, ...rest].slice(0, 3);
+  await saveDirHandleToDB(folderHistory, IDB_HISTORY_KEY);
+  renderFolderHistoryButtons();
+}
+
+// ===== よく使うファイル名の履歴(最大3件、重複無し、保存成功時に記録、2026-10-09追加) =====
+function loadFilenameHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_KEYS.filenameHistory) || '[]');
+    return Array.isArray(raw) ? raw.filter((t) => typeof t === 'string' && t) : [];
+  } catch (e) {
+    return [];
+  }
+}
+let filenameHistory = loadFilenameHistory();
+
+function renderFilenameHistoryButtons() {
+  filenameHistoryRow.innerHTML = '';
+  filenameHistory.forEach((t) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary-btn size-history-btn';
+    btn.textContent = t;
+    btn.addEventListener('click', () => {
+      filenameInput.value = t;
+      saveInput(LS_KEYS.filename, t);
+      updateNextFilenamePreview();
+    });
+    filenameHistoryRow.appendChild(btn);
+  });
+  filenameHistoryRow.classList.toggle('hidden', filenameHistory.length === 0);
+}
+
+function recordFilenameUsed(t) {
+  filenameHistory = [t, ...filenameHistory.filter((x) => x !== t)].slice(0, 3);
+  try { localStorage.setItem(LS_KEYS.filenameHistory, JSON.stringify(filenameHistory)); } catch (e) {}
+  renderFilenameHistoryButtons();
+}
+renderFilenameHistoryButtons();
 
 // ===== 連番ファイル名の管理 =====
 function escapeRegExp(s) {
@@ -475,6 +568,8 @@ saveBtn.addEventListener('click', async () => {
       saveMsg.classList.add('ok');
     }
     recordSizeUsed(targetW, targetH);
+    recordFilenameUsed(template);
+    if (dirHandle) await recordFolderUsed(dirHandle);
     await updateNextFilenamePreview();
   } catch (e) {
     console.error('[save] failed', e);
