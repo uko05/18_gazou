@@ -28,6 +28,7 @@ const saveBtn      = document.getElementById('save-btn');
 const saveMsg      = document.getElementById('save-msg');
 
 const clampToggle    = document.getElementById('clamp-toggle');
+const fillGapToggle  = document.getElementById('fill-gap-toggle');
 const sizeHistoryRow = document.getElementById('size-history-row');
 const folderHistoryRow   = document.getElementById('folder-history-row');
 const filenameHistoryRow = document.getElementById('filename-history-row');
@@ -58,6 +59,7 @@ const LS_KEYS = {
   filename: 'gazouTool_filename',
   ext:      'gazouTool_ext',
   clamp:    'gazouTool_clampEnabled',
+  fillGap:  'gazouTool_fillGap',
   sizeHistory: 'gazouTool_sizeHistory',
   filenameHistory: 'gazouTool_filenameHistory',
 };
@@ -74,6 +76,7 @@ function restoreSavedInputs() {
     const fn  = localStorage.getItem(LS_KEYS.filename);
     const ext = localStorage.getItem(LS_KEYS.ext);
     const clamp = localStorage.getItem(LS_KEYS.clamp);
+    if (fillGapToggle) fillGapToggle.checked = localStorage.getItem(LS_KEYS.fillGap) === 'true';
     if (w)  targetWidthInput.value  = w;
     if (h)  targetHeightInput.value = h;
     if (fn) filenameInput.value     = fn;
@@ -476,15 +479,32 @@ function escapeRegExp(s) {
 
 // 選択済みフォルダの中を実際に見て、同じテンプレート名+拡張子の最大の番号を探す。
 // (前回セッションの続きから連番を再開できるように、フォルダ内を毎回スキャンする)
+// 「欠番を埋める」がオンなら、1から順に見て最初に抜けている番号を使う(2026-10-11追加)。
+// オフなら今まで通り、いちばん大きい番号の次。
 async function getNextSeqFromFolder(template, ext) {
+  const used = new Set();
   let maxN = 0;
   const re = new RegExp(`^${escapeRegExp(template)}_(\\d+)\\.${ext}$`, 'i');
   for await (const name of dirHandle.keys()) {
     const m = name.match(re);
-    if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+    if (m) {
+      const n = parseInt(m[1], 10);
+      used.add(n);
+      maxN = Math.max(maxN, n);
+    }
+  }
+  if (fillGapToggle && fillGapToggle.checked) {
+    let n = 1;
+    while (used.has(n)) n += 1;
+    return n;
   }
   return maxN + 1;
 }
+
+fillGapToggle?.addEventListener('change', () => {
+  saveInput(LS_KEYS.fillGap, String(fillGapToggle.checked));
+  updateNextFilenamePreview();
+});
 
 function nextFallbackSeq(template, ext) {
   return fallbackCounts.get(`${template}||${ext}`) || 1;
