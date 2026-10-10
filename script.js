@@ -197,6 +197,12 @@ function computeFrameSize() {
 
 // 画像がフレームを常に埋めるように(すき間が出ないように)最小ズームを決め、
 // 初期状態はその最小ズームで中央寄せする。
+// ズームの上限(画像が枠にぴったり収まる大きさの何倍まで)と、ホイール1回分の拡大率。
+// 2026-10-11: 実際は1〜2回分しか拡大しないので、上限を10倍→3倍に下げ、その分ホイール1回の
+// 拡大を細かくした(1.09倍→1.04倍。端から端までのホイール回数はほぼ同じ)。
+const MAX_ZOOM = 3;
+const WHEEL_ZOOM_STEP = 1.04;
+
 function initCropFrame() {
   computeFrameSize();
   minScale = Math.max(frameW / nativeImg.width, frameH / nativeImg.height);
@@ -204,7 +210,7 @@ function initCropFrame() {
   offsetX = (frameW - nativeImg.width  * scale) / 2;
   offsetY = (frameH - nativeImg.height * scale) / 2;
   zoomSlider.min   = minScale.toFixed(4);
-  zoomSlider.max   = (minScale * 10).toFixed(4);
+  zoomSlider.max   = (minScale * MAX_ZOOM).toFixed(4);
   zoomSlider.step  = (minScale / 100).toFixed(6);
   zoomSlider.value = scale;
   applyTransform();
@@ -240,7 +246,7 @@ function applyTransform() {
 }
 
 function setScale(newScale) {
-  const maxScale = +zoomSlider.max || minScale * 10;
+  const maxScale = +zoomSlider.max || minScale * MAX_ZOOM;
   newScale = Math.max(minScale, Math.min(maxScale, newScale));
   const cx = frameW / 2, cy = frameH / 2;
   offsetX = cx - (cx - offsetX) * (newScale / scale);
@@ -271,7 +277,7 @@ cropFrame.addEventListener('pointercancel', () => { dragging = false; });
 cropFrame.addEventListener('wheel', (e) => {
   if (!nativeImg) return;
   e.preventDefault();
-  const factor = e.deltaY > 0 ? 0.92 : 1.09;
+  const factor = e.deltaY > 0 ? 1 / WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP;
   setScale(scale * factor);
 }, { passive: false });
 
