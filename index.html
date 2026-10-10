@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>画像切り抜き連番保存ツール - うーこの部屋</title>
-<link rel="stylesheet" href="style.css?v=1.6">
+<link rel="stylesheet" href="style.css?v=1.7">
 
 <!-- Favicon -->
 <link rel="icon" href="public/scripts/favicon_io/favicon.ico" type="image/x-icon">
@@ -92,6 +92,12 @@
   <section class="section hidden" id="crop-section">
     <div class="section-title">④ 位置とズームを調整して保存</div>
     <p class="hint">ドラッグで位置を移動、ホイールまたは下のスライダーで拡大縮小できます</p>
+    <div class="preview-size-row">
+      <span>調整画面の大きさ</span>
+      <label><input type="radio" name="preview-size" value="s" checked> 小</label>
+      <label><input type="radio" name="preview-size" value="m"> 中</label>
+      <label><input type="radio" name="preview-size" value="l"> 大</label>
+    </div>
     <div class="crop-frame-wrap">
       <div class="crop-stage" id="crop-stage">
         <img id="crop-ghost-img" class="crop-ghost-img" src="" alt="">
@@ -126,9 +132,9 @@
   <span id="uko-account-status-slot"></span>
 </footer>
 
-<span class="site-version" id="site-version">v1.6</span>
+<span class="site-version" id="site-version">v1.7</span>
 
-<script src="script.js?v=1.6"></script>
+<script src="script.js?v=1.7"></script>
 <script type="module" src="https://uko05.github.io/24_AccountCenter/account-status.js"></script>
 
 <!-- 共通サイドバー -->

@@ -60,6 +60,7 @@ const LS_KEYS = {
   ext:      'gazouTool_ext',
   clamp:    'gazouTool_clampEnabled',
   fillGap:  'gazouTool_fillGap',
+  previewSize: 'gazouTool_previewSize',
   sizeHistory: 'gazouTool_sizeHistory',
   filenameHistory: 'gazouTool_filenameHistory',
 };
@@ -77,6 +78,9 @@ function restoreSavedInputs() {
     const ext = localStorage.getItem(LS_KEYS.ext);
     const clamp = localStorage.getItem(LS_KEYS.clamp);
     if (fillGapToggle) fillGapToggle.checked = localStorage.getItem(LS_KEYS.fillGap) === 'true';
+    const ps = localStorage.getItem(LS_KEYS.previewSize);
+    const psRadio = ps && document.querySelector(`input[name="preview-size"][value="${ps}"]`);
+    if (psRadio) psRadio.checked = true;
     if (w)  targetWidthInput.value  = w;
     if (h)  targetHeightInput.value = h;
     if (fn) filenameInput.value     = fn;
@@ -181,11 +185,26 @@ function loadImageFromDataUrl(dataUrl) {
 }
 
 // ===== 切り抜きフレームの初期化 =====
+// 調整画面(④)の大きさ。小=今までの420px、中・大はページ幅を超えて広げる(2026-10-11追加)。
+// 画面の横幅に収まらない時は、収まる大きさまで自動で小さくする。
+const PREVIEW_SIZES = { s: 420, m: 640, l: 900 };
+function getPreviewMax() {
+  const checked = document.querySelector('input[name="preview-size"]:checked');
+  const want = PREVIEW_SIZES[checked?.value] || PREVIEW_SIZES.s;
+  // はみ出し表示(peek、最大60px×左右)と余白の分を引いた、画面に収まる幅
+  const fitW = Math.max(200, window.innerWidth - 32 - 120);
+  // 縦長の出力サイズでも、枠全体が画面の高さに収まるように(はみ出し表示と少しの余白の分を引く)
+  const fitH = Math.max(200, window.innerHeight - 140);
+  return { want, fitW, fitH };
+}
+
 function computeFrameSize() {
   const targetW = Math.max(1, parseInt(targetWidthInput.value, 10) || 1);
   const targetH = Math.max(1, parseInt(targetHeightInput.value, 10) || 1);
-  const PREVIEW_MAX = 420;
-  const ratio = Math.min(PREVIEW_MAX / targetW, PREVIEW_MAX / targetH, 1);
+  const { want, fitW, fitH } = getPreviewMax();
+  // 小は今まで通り出力サイズより大きくは表示しない。中・大は小さい出力サイズでも大きく表示して調整しやすくする
+  const upscaleCap = want === PREVIEW_SIZES.s ? 1 : Infinity;
+  const ratio = Math.min(want / targetW, want / targetH, fitW / targetW, fitH / targetH, upscaleCap);
   frameW = Math.round(targetW * ratio);
   frameH = Math.round(targetH * ratio);
   // 枠の外側にうっすら見せる「はみ出し」の幅。枠が中央に来るよう
@@ -218,6 +237,36 @@ function initCropFrame() {
   zoomSlider.value = scale;
   applyTransform();
 }
+
+// 調整画面の大きさだけを変える(ズームと位置は見た目の割合のまま引き継ぐ)
+function resizeCropFrameKeepView() {
+  if (!nativeImg) { computeFrameSize(); return; }
+  const oldW = frameW;
+  computeFrameSize();
+  const f = frameW / oldW;
+  if (!isFinite(f) || f === 1) { applyTransform(); return; }
+  minScale = Math.max(frameW / nativeImg.width, frameH / nativeImg.height);
+  scale *= f;
+  offsetX *= f;
+  offsetY *= f;
+  zoomSlider.min   = minScale.toFixed(4);
+  zoomSlider.max   = (minScale * MAX_ZOOM).toFixed(4);
+  zoomSlider.step  = (minScale / 100).toFixed(6);
+  zoomSlider.value = scale;
+  applyTransform();
+}
+
+document.querySelectorAll('input[name="preview-size"]').forEach((r) => {
+  r.addEventListener('change', () => {
+    saveInput(LS_KEYS.previewSize, r.value);
+    resizeCropFrameKeepView();
+  });
+});
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resizeCropFrameKeepView, 200);
+});
 
 // 画像の外側(透明になる領域)が枠内に入らないよう、offsetX/offsetYを
 // 「画像がフレームを常に覆っている」範囲にクランプする。

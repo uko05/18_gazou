@@ -199,7 +199,24 @@ main {
   display: flex;
   justify-content: center;
   margin: 4px 0 14px;
+  /* 調整画面を「中・大」にした時はページ幅(560px)を超えて広げたいので、画面の横幅いっぱいを使う。
+     枠の大きさはscript.jsで画面幅に収まるように計算している */
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
 }
+html, body { overflow-x: clip; }
+
+/* ④ 調整画面の大きさ(小・中・大) */
+.preview-size-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 2px 0 8px;
+  font-size: 0.82rem;
+}
+.preview-size-row > span { color: var(--muted); }
+.preview-size-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .crop-stage {
   position: relative;
   display: flex;
