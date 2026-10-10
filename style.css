@@ -217,6 +217,9 @@ main {
   opacity: 0.35;
 }
 .crop-frame {
+  /* 枠線は外側に描く(content-box)。border-boxだと見えている範囲が枠線の分(左右・上下3pxずつ)小さくなり、
+     保存される範囲(frameW×frameH)と画面の見た目がずれていた(2026-10-11修正) */
+  box-sizing: content-box;
   position: relative;
   overflow: hidden;
   background: #111;
