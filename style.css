@@ -271,3 +271,20 @@ html, body { overflow-x: clip; }
   color: var(--muted);
   cursor: pointer;
 }
+
+/* 画像の回転(2026-11-05追加) */
+.rotate-box { margin-top: 6px; }
+.rotate-number {
+  width: 72px;
+  padding: 4px 6px;
+  font-family: var(--font);
+  font-size: 0.85rem;
+}
+.rotate-unit { font-size: 0.82rem; color: var(--muted); margin-left: -6px; }
+.rotate-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rotate-btn-row .secondary-btn { padding: 6px 12px; font-size: 0.8rem; }

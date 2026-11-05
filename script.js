@@ -38,6 +38,34 @@ let nativeImg = null;
 let scale = 1, offsetX = 0, offsetY = 0, minScale = 0.01;
 let frameW = 0, frameH = 0, peek = 0;
 
+// ===== 画像の回転(2026-11-05追加) =====
+// angleDeg: 時計回りの角度。offsetX/offsetY は「回転した画像がすっぽり入る四角(外接矩形)」の左上の位置。
+// 回転していない時(0°)は外接矩形 = 画像そのものなので、これまでの計算と全く同じになる。
+let angleDeg = 0;
+const rotateToggle = document.getElementById('rotate-toggle');
+const rotateBox    = document.getElementById('rotate-box');
+const rotateSlider = document.getElementById('rotate-slider');
+const rotateNumber = document.getElementById('rotate-number');
+
+function angleRad() { return angleDeg * Math.PI / 180; }
+// 回転した画像の外接矩形の大きさ(元画像のピクセル単位)
+function rotatedBox() {
+  const c = Math.abs(Math.cos(angleRad())), s = Math.abs(Math.sin(angleRad()));
+  const w = nativeImg.width, h = nativeImg.height;
+  return { bw: w * c + h * s, bh: w * s + h * c };
+}
+// 枠が回転した画像の内側にすっぽり収まる最小のズーム(0°なら今まで通り「画像が枠を覆う」最小ズーム)
+function computeMinScale() {
+  const c = Math.abs(Math.cos(angleRad())), s = Math.abs(Math.sin(angleRad()));
+  return Math.max((frameW * c + frameH * s) / nativeImg.width, (frameW * s + frameH * c) / nativeImg.height);
+}
+function updateZoomSliderRange() {
+  zoomSlider.min   = minScale.toFixed(4);
+  zoomSlider.max   = (minScale * MAX_ZOOM).toFixed(4);
+  zoomSlider.step  = (minScale / 100).toFixed(6);
+  zoomSlider.value = scale;
+}
+
 // ===== フォルダ保存(File System Access API)の状態 =====
 let dirHandle = null;
 const HAS_FS_API = 'showDirectoryPicker' in window;
@@ -227,14 +255,12 @@ const WHEEL_ZOOM_STEP = 1.04;
 
 function initCropFrame() {
   computeFrameSize();
-  minScale = Math.max(frameW / nativeImg.width, frameH / nativeImg.height);
+  minScale = computeMinScale();
   scale = minScale;
-  offsetX = (frameW - nativeImg.width  * scale) / 2;
-  offsetY = (frameH - nativeImg.height * scale) / 2;
-  zoomSlider.min   = minScale.toFixed(4);
-  zoomSlider.max   = (minScale * MAX_ZOOM).toFixed(4);
-  zoomSlider.step  = (minScale / 100).toFixed(6);
-  zoomSlider.value = scale;
+  const { bw, bh } = rotatedBox();
+  offsetX = (frameW - bw * scale) / 2;
+  offsetY = (frameH - bh * scale) / 2;
+  updateZoomSliderRange();
   applyTransform();
 }
 
@@ -245,14 +271,11 @@ function resizeCropFrameKeepView() {
   computeFrameSize();
   const f = frameW / oldW;
   if (!isFinite(f) || f === 1) { applyTransform(); return; }
-  minScale = Math.max(frameW / nativeImg.width, frameH / nativeImg.height);
+  minScale = computeMinScale();
   scale *= f;
   offsetX *= f;
   offsetY *= f;
-  zoomSlider.min   = minScale.toFixed(4);
-  zoomSlider.max   = (minScale * MAX_ZOOM).toFixed(4);
-  zoomSlider.step  = (minScale / 100).toFixed(6);
-  zoomSlider.value = scale;
+  updateZoomSliderRange();
   applyTransform();
 }
 
@@ -272,8 +295,27 @@ window.addEventListener('resize', () => {
 // 「画像がフレームを常に覆っている」範囲にクランプする。
 // (minScaleにより画像はフレーム以上のサイズになるので、通常はimgW>=frameW/
 // imgH>=frameHだが、念のため逆のケースも中央寄せで吸収しておく)
+// 回転している時は、枠の4つの角がすべて回転した画像の内側に入るよう、画像の中心の位置を制限する。
+// (画像の向きにそろえた座標で見ると、中心が動ける範囲はただの四角になる)
 function clampOffsets() {
   if (!clampEnabled) return;
+  if (angleDeg !== 0) {
+    const { bw, bh } = rotatedBox();
+    const cos = Math.cos(angleRad()), sin = Math.sin(angleRad());
+    const W = nativeImg.width * scale, H = nativeImg.height * scale;
+    const px = offsetX + bw * scale / 2, py = offsetY + bh * scale / 2;
+    const toImg = (x, y) => [x * cos + y * sin, -x * sin + y * cos];
+    const corners = [[0, 0], [frameW, 0], [0, frameH], [frameW, frameH]].map(([x, y]) => toImg(x, y));
+    const us = corners.map((q) => q[0]), vs = corners.map((q) => q[1]);
+    const clampRange = (val, lo, hi) => lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, val));
+    let [u, v] = toImg(px, py);
+    u = clampRange(u, Math.max(...us) - W / 2, Math.min(...us) + W / 2);
+    v = clampRange(v, Math.max(...vs) - H / 2, Math.min(...vs) + H / 2);
+    const nx = u * cos - v * sin, ny = u * sin + v * cos;
+    offsetX = nx - bw * scale / 2;
+    offsetY = ny - bh * scale / 2;
+    return;
+  }
   const imgW = nativeImg.width  * scale;
   const imgH = nativeImg.height * scale;
   offsetX = imgW <= frameW ? (frameW - imgW) / 2 : Math.min(0, Math.max(frameW - imgW, offsetX));
@@ -282,20 +324,79 @@ function clampOffsets() {
 
 function applyTransform() {
   clampOffsets();
+  // 画像は中心を軸に回転させて表示する。外接矩形の左上(offsetX/Y)から、画像の左上の位置を出す
+  const { bw, bh } = rotatedBox();
+  const imgLeft = offsetX + (bw - nativeImg.width)  * scale / 2;
+  const imgTop  = offsetY + (bh - nativeImg.height) * scale / 2;
+  const rot = angleDeg ? `rotate(${angleDeg}deg)` : '';
   cropImg.src = nativeImg.src;
   cropImg.style.width  = (nativeImg.width  * scale) + 'px';
   cropImg.style.height = (nativeImg.height * scale) + 'px';
-  cropImg.style.left   = offsetX + 'px';
-  cropImg.style.top    = offsetY + 'px';
+  cropImg.style.left   = imgLeft + 'px';
+  cropImg.style.top    = imgTop + 'px';
+  cropImg.style.transformOrigin = '50% 50%';
+  cropImg.style.transform = rot;
 
   // ゴースト画像はcrop-imgと全く同じ拡大率・位置だが、crop-stage基準
   // (枠の左上はステージから常にpeek分オフセットしている)で配置する。
   cropGhostImg.src = nativeImg.src;
   cropGhostImg.style.width  = (nativeImg.width  * scale) + 'px';
   cropGhostImg.style.height = (nativeImg.height * scale) + 'px';
-  cropGhostImg.style.left   = (peek + offsetX) + 'px';
-  cropGhostImg.style.top    = (peek + offsetY) + 'px';
+  cropGhostImg.style.left   = (peek + imgLeft) + 'px';
+  cropGhostImg.style.top    = (peek + imgTop) + 'px';
+  cropGhostImg.style.transformOrigin = '50% 50%';
+  cropGhostImg.style.transform = rot;
 }
+
+// 角度を変える。画像の中心の位置と、ズームの「最小からの倍率」はそのまま引き継ぐ
+function setAngle(deg) {
+  deg = Math.round(Math.max(-180, Math.min(180, deg)) * 10) / 10;
+  if (!nativeImg) { angleDeg = deg; return; }
+  const old = rotatedBox();
+  const cx = offsetX + old.bw * scale / 2, cy = offsetY + old.bh * scale / 2;
+  const zoomRatio = scale / minScale;
+  angleDeg = deg;
+  minScale = computeMinScale();
+  scale = minScale * zoomRatio;
+  const now = rotatedBox();
+  offsetX = cx - now.bw * scale / 2;
+  offsetY = cy - now.bh * scale / 2;
+  updateZoomSliderRange();
+  applyTransform();
+}
+
+function showAngle(deg) {
+  rotateSlider.value = deg;
+  rotateNumber.value = deg;
+}
+// チェックを外すと 0° で表示する(角度の値は残しておき、もう一度チェックすると戻る)
+rotateToggle.addEventListener('change', () => {
+  rotateBox.classList.toggle('hidden', !rotateToggle.checked);
+  setAngle(rotateToggle.checked ? (parseFloat(rotateSlider.value) || 0) : 0);
+});
+rotateSlider.addEventListener('input', () => {
+  rotateNumber.value = rotateSlider.value;
+  setAngle(+rotateSlider.value);
+});
+rotateNumber.addEventListener('change', () => {
+  const deg = Math.max(-180, Math.min(180, parseFloat(rotateNumber.value) || 0));
+  showAngle(deg);
+  setAngle(deg);
+});
+document.querySelectorAll('.rotate-step-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    let deg = (parseFloat(rotateSlider.value) || 0) + Number(btn.dataset.step);
+    // -180〜180 の範囲に回り込ませる(例: 170° から右に90° → -100°)
+    deg = ((deg + 180) % 360 + 360) % 360 - 180;
+    deg = Math.round(deg * 10) / 10;
+    showAngle(deg);
+    setAngle(deg);
+  });
+});
+document.getElementById('rotate-reset-btn').addEventListener('click', () => {
+  showAngle(0);
+  setAngle(0);
+});
 
 function setScale(newScale) {
   const maxScale = +zoomSlider.max || minScale * MAX_ZOOM;
@@ -605,13 +706,24 @@ saveBtn.addEventListener('click', async () => {
     canvas.width = targetW;
     canvas.height = targetH;
     const ctx = canvas.getContext('2d');
-    // フレーム内に見えている領域を、そのまま指定サイズへ書き出す
-    // (プレビュー用フレームの画面上のピクセルサイズとは独立して計算できる)
-    const srcX = -offsetX / scale;
-    const srcY = -offsetY / scale;
-    const srcW = frameW / scale;
-    const srcH = frameH / scale;
-    ctx.drawImage(nativeImg, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+    if (angleDeg === 0) {
+      // フレーム内に見えている領域を、そのまま指定サイズへ書き出す
+      // (プレビュー用フレームの画面上のピクセルサイズとは独立して計算できる)
+      const srcX = -offsetX / scale;
+      const srcY = -offsetY / scale;
+      const srcW = frameW / scale;
+      const srcH = frameH / scale;
+      ctx.drawImage(nativeImg, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+    } else {
+      // 回転している時: 画面の枠の座標を出力サイズに拡大し、画面と同じように中心で回転させて元画像から描く
+      const { bw, bh } = rotatedBox();
+      ctx.imageSmoothingQuality = 'high';
+      ctx.setTransform(targetW / frameW, 0, 0, targetH / frameH, 0, 0);
+      ctx.translate(offsetX + bw * scale / 2, offsetY + bh * scale / 2);
+      ctx.rotate(angleRad());
+      const W = nativeImg.width * scale, H = nativeImg.height * scale;
+      ctx.drawImage(nativeImg, -W / 2, -H / 2, W, H);
+    }
 
     const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
     const quality = (ext === 'jpg' || ext === 'webp') ? 0.92 : undefined;
