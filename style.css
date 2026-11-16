@@ -138,6 +138,13 @@ main {
   padding: 6px 14px;
   font-size: 0.8rem;
 }
+.folder-set-label {
+  display: block;
+  font-size: 0.7rem;
+  opacity: 0.7;
+  margin-top: 2px;
+  text-align: left;
+}
 
 .primary-btn {
   display: block;

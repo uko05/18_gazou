@@ -81,6 +81,9 @@ if (!HAS_FS_API) {
 
 // ===== 入力値の保持(localStorage) =====
 // フォルダ選択(dirHandle)は別途IndexedDBで扱う(後述)。ここでは単純な文字列項目のみ。
+// 履歴(サイズ・保存先フォルダ・ファイル名)を残す件数(2026-11-16に3→10)
+const HISTORY_MAX = 10;
+
 const LS_KEYS = {
   targetW:  'gazouTool_targetW',
   targetH:  'gazouTool_targetH',
@@ -134,7 +137,7 @@ clampToggle.addEventListener('change', () => {
   if (nativeImg) applyTransform();
 });
 
-// ===== よく使うサイズの履歴(最大3件、重複無し、保存成功時に記録) =====
+// ===== よく使うサイズの履歴(最大10件、重複無し、保存成功時に記録。2026-11-16に3件→10件) =====
 function loadSizeHistory() {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_KEYS.sizeHistory) || '[]');
@@ -173,7 +176,7 @@ function renderSizeHistoryButtons() {
 function recordSizeUsed(w, h) {
   sizeHistory = sizeHistory.filter((e) => !(e.w === w && e.h === h));
   sizeHistory.unshift({ w, h });
-  sizeHistory = sizeHistory.slice(0, 3);
+  sizeHistory = sizeHistory.slice(0, HISTORY_MAX);
   saveSizeHistoryToStorage();
   renderSizeHistoryButtons();
 }
@@ -524,6 +527,7 @@ pickFolderBtn.addEventListener('click', async () => {
     dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
     saveMsg.textContent = '';
+    await applySetForFolder(dirHandle);
     updateNextFilenamePreview();
     await saveDirHandleToDB(dirHandle);
   } catch (e) {
@@ -533,31 +537,90 @@ pickFolderBtn.addEventListener('click', async () => {
 
 restoreFolderHandle();
 
-// ===== よく使う保存先フォルダの履歴(最大3件、重複無し、保存成功時に記録、2026-10-09追加) =====
+// ===== よく使う保存先フォルダの履歴(最大10件、重複無し、保存成功時に記録、2026-10-09追加) =====
 // フォルダのハンドルはlocalStorageに入らないので、IndexedDBに配列で保存する。
 // ボタンを押した時(ユーザー操作)に許可の再取得もできるので、前回のフォルダの復元と同じ流れで使える。
+// 2026-11-16: フォルダごとに「最後にそのフォルダへ保存したときの設定(ファイル名・拡張子・出力サイズ)」も
+// 一緒に覚え、フォルダを選んだら(履歴のボタンでも「フォルダを選択」でも)その設定に切り替える。
+// 保存形式: [{ handle, set: { filename, ext, w, h } }, ...](以前の形式=ハンドルだけの配列も読める)
 let folderHistory = [];
+
+const FOLDER_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
 async function loadFolderHistory() {
   const raw = await loadDirHandleFromDB(IDB_HISTORY_KEY);
-  folderHistory = Array.isArray(raw) ? raw.filter((h) => h && h.kind === 'directory') : [];
+  const list = Array.isArray(raw) ? raw : [];
+  folderHistory = list
+    .map((e) => (e && e.kind === 'directory' ? { handle: e, set: null } : e))
+    .filter((e) => e && e.handle && e.handle.kind === 'directory');
   renderFolderHistoryButtons();
+}
+
+function currentSaveSet() {
+  return {
+    filename: filenameInput.value.trim() || 'image',
+    ext: extSelect.value,
+    w: +targetWidthInput.value || null,
+    h: +targetHeightInput.value || null,
+  };
+}
+
+// フォルダに覚えておいた設定を、入力欄に入れる
+function applySaveSet(set) {
+  if (!set) return false;
+  if (set.filename) { filenameInput.value = set.filename; saveInput(LS_KEYS.filename, set.filename); }
+  if (set.ext && [...extSelect.options].some((o) => o.value === set.ext)) { extSelect.value = set.ext; saveInput(LS_KEYS.ext, set.ext); }
+  let sizeChanged = false;
+  if (set.w && set.h && (+targetWidthInput.value !== set.w || +targetHeightInput.value !== set.h)) {
+    targetWidthInput.value = set.w; targetHeightInput.value = set.h;
+    saveInput(LS_KEYS.targetW, set.w); saveInput(LS_KEYS.targetH, set.h);
+    sizeChanged = true;
+  }
+  if (sizeChanged && nativeImg) initCropFrame();
+  return true;
+}
+
+function setLabel(set) {
+  if (!set) return '';
+  return `${set.filename}・${set.ext ? set.ext.toUpperCase() : ''}${set.w && set.h ? `・${set.w}×${set.h}` : ''}`;
 }
 
 function renderFolderHistoryButtons() {
   folderHistoryRow.innerHTML = '';
-  folderHistory.forEach((handle) => {
+  folderHistory.forEach((e) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'secondary-btn size-history-btn';
-    btn.textContent = `📁 ${handle.name}`;
-    btn.addEventListener('click', () => useFolderFromHistory(handle));
+    btn.innerHTML = FOLDER_SVG;
+    btn.appendChild(document.createTextNode(e.handle.name));
+    if (e.set) {
+      const sub = document.createElement('span');
+      sub.className = 'folder-set-label';
+      sub.textContent = setLabel(e.set);
+      btn.appendChild(sub);
+      btn.title = `このフォルダを選ぶと「${setLabel(e.set)}」に切り替わります`;
+    }
+    btn.addEventListener('click', () => useFolderFromHistory(e));
     folderHistoryRow.appendChild(btn);
   });
   folderHistoryRow.classList.toggle('hidden', !HAS_FS_API || folderHistory.length === 0);
 }
 
-async function useFolderFromHistory(handle) {
+async function findFolderEntry(handle) {
+  for (const e of folderHistory) {
+    try { if (await e.handle.isSameEntry(handle)) return e; } catch (err) {}
+  }
+  return null;
+}
+
+// 「フォルダを選択」で選んだフォルダが履歴にあれば、そのフォルダの設定に切り替える
+async function applySetForFolder(handle) {
+  const e = await findFolderEntry(handle);
+  if (e && applySaveSet(e.set)) saveMsg.textContent = `このフォルダで前回使った設定（${setLabel(e.set)}）に切り替えました。`;
+}
+
+async function useFolderFromHistory(entry) {
+  const handle = entry.handle;
   try {
     let perm = await handle.queryPermission({ mode: 'readwrite' });
     if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' });
@@ -565,7 +628,7 @@ async function useFolderFromHistory(handle) {
     dirHandle = handle;
     pendingDirHandle = null;
     folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
-    saveMsg.textContent = '';
+    saveMsg.textContent = applySaveSet(entry.set) ? `このフォルダで前回使った設定（${setLabel(entry.set)}）に切り替えました。` : '';
     await saveDirHandleToDB(dirHandle);
     updateNextFilenamePreview();
   } catch (e) {
@@ -577,17 +640,17 @@ async function useFolderFromHistory(handle) {
 // 同じ名前の別フォルダもあり得るので、名前ではなくisSameEntry()で重複を判定する
 async function recordFolderUsed(handle) {
   const rest = [];
-  for (const h of folderHistory) {
+  for (const e of folderHistory) {
     let same = false;
-    try { same = await h.isSameEntry(handle); } catch (e) {}
-    if (!same) rest.push(h);
+    try { same = await e.handle.isSameEntry(handle); } catch (err) {}
+    if (!same) rest.push(e);
   }
-  folderHistory = [handle, ...rest].slice(0, 3);
+  folderHistory = [{ handle, set: currentSaveSet() }, ...rest].slice(0, HISTORY_MAX);
   await saveDirHandleToDB(folderHistory, IDB_HISTORY_KEY);
   renderFolderHistoryButtons();
 }
 
-// ===== よく使うファイル名の履歴(最大3件、重複無し、保存成功時に記録、2026-10-09追加) =====
+// ===== よく使うファイル名の履歴(最大10件、重複無し、保存成功時に記録、2026-10-09追加) =====
 function loadFilenameHistory() {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_KEYS.filenameHistory) || '[]');
@@ -616,7 +679,7 @@ function renderFilenameHistoryButtons() {
 }
 
 function recordFilenameUsed(t) {
-  filenameHistory = [t, ...filenameHistory.filter((x) => x !== t)].slice(0, 3);
+  filenameHistory = [t, ...filenameHistory.filter((x) => x !== t)].slice(0, HISTORY_MAX);
   try { localStorage.setItem(LS_KEYS.filenameHistory, JSON.stringify(filenameHistory)); } catch (e) {}
   renderFilenameHistoryButtons();
 }
