@@ -619,12 +619,29 @@ async function applySetForFolder(handle) {
   if (e && applySaveSet(e.set)) saveMsg.textContent = `このフォルダで前回使った設定（${setLabel(e.set)}）に切り替えました。`;
 }
 
+// 2026-11-23 修正: Edge で履歴のボタンを押しても「未選択」のままだった。
+// 前は queryPermission() を待ってから requestPermission() を呼んでいたので、待っているあいだに
+// 「ボタンを押した直後」の扱いが切れて、許可の確認が出ずに断られ、そのまま何も表示せずに終わっていた。
+// 今は requestPermission() をすぐ呼び(許可済みなら確認なしで通る)、だめならそのフォルダを開いた状態で
+// フォルダ選択の画面を出す。それもだめなら、理由を表示する。
 async function useFolderFromHistory(entry) {
-  const handle = entry.handle;
+  let handle = entry.handle;
   try {
-    let perm = await handle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') return;
+    let perm = 'denied';
+    try { perm = await handle.requestPermission({ mode: 'readwrite' }); } catch (err) { console.warn('[gazou] requestPermission failed', err); }
+    if (perm !== 'granted') {
+      try {
+        handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: entry.handle });
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // 選ぶ画面を閉じた
+        console.warn('[gazou] showDirectoryPicker failed', err);
+        saveMsg.textContent = `「${entry.handle.name}」の使用が許可されませんでした。「フォルダを選択」から選んでください（このフォルダの設定に自動で切り替わります）。`;
+        return;
+      }
+      const e2 = await findFolderEntry(handle);
+      if (e2) entry = e2;
+      else entry = { handle, set: null };
+    }
     dirHandle = handle;
     pendingDirHandle = null;
     folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
