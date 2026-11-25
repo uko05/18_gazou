@@ -20,6 +20,7 @@ const zoomSlider   = document.getElementById('zoom-slider');
 
 const pickFolderBtn      = document.getElementById('pick-folder-btn');
 const folderNameDisplay  = document.getElementById('folder-name-display');
+const folderMsg          = document.getElementById('folder-msg');
 const fsapiWarning       = document.getElementById('fsapi-warning');
 const filenameInput      = document.getElementById('filename-input');
 const extSelect          = document.getElementById('ext-select');
@@ -522,8 +523,14 @@ pickFolderBtn.addEventListener('click', async () => {
         updateNextFilenamePreview();
         return;
       }
-      pendingDirHandle = null; // 拒否された場合は新規選択に進む
+      // 拒否された場合: 確認を待ったあとでは選ぶ画面を出せない(押した直後の扱いが切れる)ので、
+      // 次に押したときに選ぶ画面を出す
+      pendingDirHandle = null;
+      folderNameDisplay.textContent = '未選択（ダウンロードフォルダに保存されます）';
+      showFolderMsg('前回のフォルダは使えませんでした。もう一度「フォルダを選択」を押して選んでください。', true);
+      return;
     }
+    showFolderMsg('');
     dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
     saveMsg.textContent = '';
@@ -531,7 +538,11 @@ pickFolderBtn.addEventListener('click', async () => {
     updateNextFilenamePreview();
     await saveDirHandleToDB(dirHandle);
   } catch (e) {
-    // ユーザーがキャンセルした場合など。何もしない。
+    // 選ぶ画面を閉じた場合は何もしない。それ以外は理由を出す
+    if (!e || e.name !== 'AbortError') {
+      console.warn('[gazou] pick folder failed', e);
+      showFolderMsg(`フォルダを選べませんでした。もう一度押してください。（${e && e.name || 'エラー'}）`, true);
+    }
   }
 });
 
@@ -554,6 +565,7 @@ async function loadFolderHistory() {
     .map((e) => (e && e.kind === 'directory' ? { handle: e, set: null } : e))
     .filter((e) => e && e.handle && e.handle.kind === 'directory');
   renderFolderHistoryButtons();
+  refreshFolderPermStates();
 }
 
 function currentSaveSet() {
@@ -616,42 +628,73 @@ async function findFolderEntry(handle) {
 // 「フォルダを選択」で選んだフォルダが履歴にあれば、そのフォルダの設定に切り替える
 async function applySetForFolder(handle) {
   const e = await findFolderEntry(handle);
-  if (e && applySaveSet(e.set)) saveMsg.textContent = `このフォルダで前回使った設定（${setLabel(e.set)}）に切り替えました。`;
+  if (e && applySaveSet(e.set)) showFolderMsg(`このフォルダで前回使った設定（${setLabel(e.set)}）に切り替えました。`);
+  if (e) e.perm = 'granted';
 }
 
 // 2026-11-23 修正: Edge で履歴のボタンを押しても「未選択」のままだった。
-// 前は queryPermission() を待ってから requestPermission() を呼んでいたので、待っているあいだに
-// 「ボタンを押した直後」の扱いが切れて、許可の確認が出ずに断られ、そのまま何も表示せずに終わっていた。
-// 今は requestPermission() をすぐ呼び(許可済みなら確認なしで通る)、だめならそのフォルダを開いた状態で
-// フォルダ選択の画面を出す。それもだめなら、理由を表示する。
-async function useFolderFromHistory(entry) {
-  let handle = entry.handle;
-  try {
-    let perm = 'denied';
-    try { perm = await handle.requestPermission({ mode: 'readwrite' }); } catch (err) { console.warn('[gazou] requestPermission failed', err); }
-    if (perm !== 'granted') {
-      try {
-        handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: entry.handle });
-      } catch (err) {
-        if (err && err.name === 'AbortError') return; // 選ぶ画面を閉じた
-        console.warn('[gazou] showDirectoryPicker failed', err);
-        saveMsg.textContent = `「${entry.handle.name}」の使用が許可されませんでした。「フォルダを選択」から選んでください（このフォルダの設定に自動で切り替わります）。`;
-        return;
-      }
-      const e2 = await findFolderEntry(handle);
-      if (e2) entry = e2;
-      else entry = { handle, set: null };
-    }
-    dirHandle = handle;
-    pendingDirHandle = null;
-    folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
-    saveMsg.textContent = applySaveSet(entry.set) ? `このフォルダで前回使った設定（${setLabel(entry.set)}）に切り替えました。` : '';
-    await saveDirHandleToDB(dirHandle);
-    updateNextFilenamePreview();
-  } catch (e) {
-    console.error('[gazou] folder history use failed', e);
-    saveMsg.textContent = 'このフォルダは開けませんでした。「フォルダを選択」から選び直してください。';
+// 2026-11-25 再修正: まだ直っていなかった。原因は2つ。
+//   1. requestPermission() の確認を待つと「ボタンを押した直後」の扱いが使い切られ、
+//      そのあとの showDirectoryPicker() が SecurityError で失敗していた(選ぶ画面が出ない)。
+//   2. 失敗の案内をページ下の保存ボタン付近(save-msg)に出していたので、フォルダの所では何も起きないように見えた。
+// 今は、ページを開いたとき(と使ったあと)に各フォルダの許可の状態を queryPermission() で調べておき、
+// 押したときは待たずに1つだけ呼ぶ: 許可済み → そのまま使う / 確認が必要 → requestPermission() /
+// 断られている → そのフォルダを開いた状態で選ぶ画面。確認で断られたら、次に押したときは選ぶ画面を出す。
+// 案内はフォルダのすぐ下(folder-msg)に出す。
+function showFolderMsg(text, isError) {
+  folderMsg.textContent = text || '';
+  folderMsg.className = 'form-msg' + (text && isError ? ' error' : '');
+}
+
+async function refreshFolderPermStates() {
+  for (const e of folderHistory) {
+    try { e.perm = await e.handle.queryPermission({ mode: 'readwrite' }); } catch (err) { e.perm = 'prompt'; }
   }
+}
+
+function adoptFolder(handle, entry) {
+  dirHandle = handle;
+  pendingDirHandle = null;
+  if (entry) entry.perm = 'granted';
+  folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
+  const applied = entry && applySaveSet(entry.set);
+  showFolderMsg(applied ? `このフォルダで前回使った設定（${setLabel(entry.set)}）に切り替えました。` : '');
+  saveMsg.textContent = '';
+  saveDirHandleToDB(dirHandle);
+  updateNextFilenamePreview();
+}
+
+async function pickFolderStartingAt(entry) {
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: entry.handle });
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // 選ぶ画面を閉じた
+    console.warn('[gazou] showDirectoryPicker failed', err);
+    showFolderMsg(`「${entry.handle.name}」を開けませんでした。もう一度押すか、「フォルダを選択」から選んでください。（${err && err.name || 'エラー'}）`, true);
+    return;
+  }
+  adoptFolder(handle, (await findFolderEntry(handle)) || { handle, set: null });
+}
+
+async function useFolderFromHistory(entry) {
+  showFolderMsg('');
+  if (entry.perm === 'granted') {
+    // 念のため本当に使えるか確かめる(ここは待っても選ぶ画面を出さないので問題ない)
+    let ok = false;
+    try { ok = (await entry.handle.queryPermission({ mode: 'readwrite' })) === 'granted'; } catch (err) {}
+    if (ok) { adoptFolder(entry.handle, entry); return; }
+    entry.perm = 'prompt';
+    showFolderMsg(`「${entry.handle.name}」を使うには、もう一度押して許可してください。`, true);
+    return;
+  }
+  if (entry.perm === 'denied') { await pickFolderStartingAt(entry); return; }
+  // 確認が必要(prompt)または不明 → 押した直後のうちに確認を出す
+  let perm = 'denied';
+  try { perm = await entry.handle.requestPermission({ mode: 'readwrite' }); } catch (err) { console.warn('[gazou] requestPermission failed', err); }
+  if (perm === 'granted') { adoptFolder(entry.handle, entry); return; }
+  entry.perm = 'denied';
+  showFolderMsg(`「${entry.handle.name}」の使用が許可されませんでした。もう一度押すと、このフォルダを開いた状態で選ぶ画面が出ます。`, true);
 }
 
 // 同じ名前の別フォルダもあり得るので、名前ではなくisSameEntry()で重複を判定する
@@ -663,7 +706,9 @@ async function recordFolderUsed(handle) {
     if (!same) rest.push(e);
   }
   folderHistory = [{ handle, set: currentSaveSet() }, ...rest].slice(0, HISTORY_MAX);
-  await saveDirHandleToDB(folderHistory, IDB_HISTORY_KEY);
+  // IndexedDBには許可の状態(perm)を入れない(開き直すたびに調べ直す)
+  await saveDirHandleToDB(folderHistory.map(({ handle: h, set }) => ({ handle: h, set })), IDB_HISTORY_KEY);
+  folderHistory[0].perm = 'granted';
   renderFolderHistoryButtons();
 }
 
