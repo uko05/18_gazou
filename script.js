@@ -612,7 +612,7 @@ function renderFolderHistoryButtons() {
       btn.appendChild(sub);
       btn.title = `このフォルダを選ぶと「${setLabel(e.set)}」に切り替わります`;
     }
-    btn.addEventListener('click', () => useFolderFromHistory(e));
+    btn.addEventListener('click', () => { useFolderFromHistory(e); });
     folderHistoryRow.appendChild(btn);
   });
   folderHistoryRow.classList.toggle('hidden', !HAS_FS_API || folderHistory.length === 0);
@@ -677,8 +677,19 @@ async function pickFolderStartingAt(entry) {
   adoptFolder(handle, (await findFolderEntry(handle)) || { handle, set: null });
 }
 
+// 2026-11-26: Edge でまだ「押しても反応なし」と言われたので、押した瞬間に表示を出し、
+// 途中で例外が出たら内容をそのまま表示する(原因を画面で確かめられるように)
 async function useFolderFromHistory(entry) {
-  showFolderMsg('');
+  showFolderMsg(`「${entry.handle.name}」を開いています…（状態: ${entry.perm || '未確認'}）`);
+  try {
+    await useFolderFromHistoryInner(entry);
+  } catch (err) {
+    console.error('[gazou] folder history failed', err);
+    showFolderMsg(`「${entry.handle.name}」を開けませんでした（${err && err.name || 'エラー'}: ${err && err.message || ''}）。この文をそのまま教えてください。`, true);
+  }
+}
+
+async function useFolderFromHistoryInner(entry) {
   if (entry.perm === 'granted') {
     // 念のため本当に使えるか確かめる(ここは待っても選ぶ画面を出さないので問題ない)
     let ok = false;
@@ -694,7 +705,7 @@ async function useFolderFromHistory(entry) {
   try { perm = await entry.handle.requestPermission({ mode: 'readwrite' }); } catch (err) { console.warn('[gazou] requestPermission failed', err); }
   if (perm === 'granted') { adoptFolder(entry.handle, entry); return; }
   entry.perm = 'denied';
-  showFolderMsg(`「${entry.handle.name}」の使用が許可されませんでした。もう一度押すと、このフォルダを開いた状態で選ぶ画面が出ます。`, true);
+  showFolderMsg(`（結果: ${perm}）「${entry.handle.name}」の使用が許可されませんでした。もう一度押すと、このフォルダを開いた状態で選ぶ画面が出ます。`, true);
 }
 
 // 同じ名前の別フォルダもあり得るので、名前ではなくisSameEntry()で重複を判定する
