@@ -495,7 +495,7 @@ async function restoreFolderHandle() {
   const handle = await loadDirHandleFromDB();
   if (!handle) return;
   try {
-    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    const perm = await withTimeout(handle.queryPermission({ mode: 'readwrite' }), 1500);
     if (perm === 'granted') {
       dirHandle = handle;
       folderNameDisplay.textContent = `選択中: ${dirHandle.name}`;
@@ -620,7 +620,7 @@ function renderFolderHistoryButtons() {
 
 async function findFolderEntry(handle) {
   for (const e of folderHistory) {
-    try { if (await e.handle.isSameEntry(handle)) return e; } catch (err) {}
+    try { if ((await withTimeout(e.handle.isSameEntry(handle), 1500)) === true) return e; } catch (err) {}
   }
   return null;
 }
@@ -646,10 +646,16 @@ function showFolderMsg(text, isError) {
   folderMsg.className = 'form-msg' + (text && isError ? ' error' : '');
 }
 
+// Edge では queryPermission()/requestPermission() の返事がいつまでも返ってこないことがある(2026-11-26 確認)。
+// 一定時間で見切りをつけ、'hang' として扱う。
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve('hang'), ms))]);
+}
+
 async function refreshFolderPermStates() {
-  for (const e of folderHistory) {
-    try { e.perm = await e.handle.queryPermission({ mode: 'readwrite' }); } catch (err) { e.perm = 'prompt'; }
-  }
+  await Promise.all(folderHistory.map(async (e) => {
+    try { e.perm = await withTimeout(e.handle.queryPermission({ mode: 'readwrite' }), 1500); } catch (err) { e.perm = 'prompt'; }
+  }));
 }
 
 function adoptFolder(handle, entry) {
@@ -665,11 +671,12 @@ function adoptFolder(handle, entry) {
 }
 
 async function pickFolderStartingAt(entry) {
+  showFolderMsg(`「${entry.handle.name}」を開いた画面で「フォルダーの選択」を押してください。`);
   let handle;
   try {
     handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: entry.handle });
   } catch (err) {
-    if (err && err.name === 'AbortError') return; // 選ぶ画面を閉じた
+    if (err && err.name === 'AbortError') { showFolderMsg(''); return; } // 選ぶ画面を閉じた
     console.warn('[gazou] showDirectoryPicker failed', err);
     showFolderMsg(`「${entry.handle.name}」を開けませんでした。もう一度押すか、「フォルダを選択」から選んでください。（${err && err.name || 'エラー'}）`, true);
     return;
@@ -693,16 +700,18 @@ async function useFolderFromHistoryInner(entry) {
   if (entry.perm === 'granted') {
     // 念のため本当に使えるか確かめる(ここは待っても選ぶ画面を出さないので問題ない)
     let ok = false;
-    try { ok = (await entry.handle.queryPermission({ mode: 'readwrite' })) === 'granted'; } catch (err) {}
+    try { ok = (await withTimeout(entry.handle.queryPermission({ mode: 'readwrite' }), 1500)) === 'granted'; } catch (err) {}
     if (ok) { adoptFolder(entry.handle, entry); return; }
     entry.perm = 'prompt';
     showFolderMsg(`「${entry.handle.name}」を使うには、もう一度押して許可してください。`, true);
     return;
   }
-  if (entry.perm === 'denied') { await pickFolderStartingAt(entry); return; }
+  // 断られている・状態が分からない(Edgeで問い合わせが返ってこない)ときは、許可の確認をせずに
+  // すぐそのフォルダを開いた状態で選ぶ画面を出す(「選択」を押すだけで使える)
+  if (entry.perm !== 'prompt') { await pickFolderStartingAt(entry); return; }
   // 確認が必要(prompt)または不明 → 押した直後のうちに確認を出す
   let perm = 'denied';
-  try { perm = await entry.handle.requestPermission({ mode: 'readwrite' }); } catch (err) { console.warn('[gazou] requestPermission failed', err); }
+  try { perm = await withTimeout(entry.handle.requestPermission({ mode: 'readwrite' }), 15000); } catch (err) { console.warn('[gazou] requestPermission failed', err); }
   if (perm === 'granted') { adoptFolder(entry.handle, entry); return; }
   entry.perm = 'denied';
   showFolderMsg(`（結果: ${perm}）「${entry.handle.name}」の使用が許可されませんでした。もう一度押すと、このフォルダを開いた状態で選ぶ画面が出ます。`, true);
@@ -713,7 +722,7 @@ async function recordFolderUsed(handle) {
   const rest = [];
   for (const e of folderHistory) {
     let same = false;
-    try { same = await e.handle.isSameEntry(handle); } catch (err) {}
+    try { same = (await withTimeout(e.handle.isSameEntry(handle), 1500)) === true; } catch (err) {}
     if (!same) rest.push(e);
   }
   folderHistory = [{ handle, set: currentSaveSet() }, ...rest].slice(0, HISTORY_MAX);
